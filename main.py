@@ -140,3 +140,7 @@ if __name__ == "__main__":
 
 # Vercel serverless handler
 handler = Mangum(app)
+
+
+# Vercel serverless handler
+handler = Mangum(app)
