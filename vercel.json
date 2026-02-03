@@ -1,8 +1,7 @@
 {
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.py"
+  "functions": {
+    "index.py": {
+      "runtime": "python3.9"
     }
-  ]
+  }
 }
