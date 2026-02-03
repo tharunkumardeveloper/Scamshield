@@ -437,17 +437,26 @@ class handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({
                 "status": "error",
-                "error": "Invalid JSON request"
+                "error": "Invalid JSON request",
+                "details": str(e)
             }).encode())
             return
         
         try:
-            # Extract request fields
-            session_id = request_data.get("sessionId", "unknown")
-            message_data = request_data.get("message", {})
-            history_data = request_data.get("conversationHistory", [])
+            # Extract request fields with validation
+            session_id = request_data.get("sessionId")
+            if not session_id:
+                raise ValueError("sessionId is required")
             
-            message_text = message_data.get("text", "")
+            message_data = request_data.get("message")
+            if not message_data:
+                raise ValueError("message is required")
+            
+            message_text = message_data.get("text")
+            if not message_text:
+                raise ValueError("message.text is required")
+            
+            history_data = request_data.get("conversationHistory", [])
             
             # Get session data
             session = get_session_data(session_id)
@@ -515,13 +524,25 @@ class handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(response).encode())
             
+        except ValueError as e:
+            # Validation error - return 400
+            self.send_response(400)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "error",
+                "error": "INVALID_REQUEST_BODY",
+                "message": str(e)
+            }).encode())
         except Exception as e:
+            # Server error - return 500
             self.send_response(500)
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({
                 "status": "error",
-                "error": str(e),
-                "message": "Internal server error"
+                "error": "INTERNAL_SERVER_ERROR",
+                "message": str(e)
             }).encode())
