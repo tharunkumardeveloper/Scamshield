@@ -3,6 +3,7 @@ import json
 import os
 import re
 import random
+import time
 
 # ============================================================================
 # SCAM DETECTION ENGINE
@@ -360,10 +361,19 @@ def send_guvi_callback(session_id, total_messages, intelligence, scam_type, conv
 # ============================================================================
 
 # In-memory session storage (for Vercel serverless)
+# Limit to 100 sessions to prevent memory issues
 SESSION_STORE = {}
+MAX_SESSIONS = 100
 
 def get_session_data(session_id):
-    """Get or create session data"""
+    """Get or create session data with size limit"""
+    # Clean up old sessions if limit reached
+    if len(SESSION_STORE) >= MAX_SESSIONS:
+        # Remove oldest 20 sessions
+        old_sessions = list(SESSION_STORE.keys())[:20]
+        for old_id in old_sessions:
+            SESSION_STORE.pop(old_id, None)
+    
     if session_id not in SESSION_STORE:
         SESSION_STORE[session_id] = {
             "persona": None,
@@ -443,20 +453,31 @@ class handler(BaseHTTPRequestHandler):
             return
         
         try:
-            # Extract request fields with validation
+            # Extract request fields with lenient validation
             session_id = request_data.get("sessionId")
             if not session_id:
-                raise ValueError("sessionId is required")
+                # Generate a default session ID if missing
+                session_id = f"session-{int(time.time() * 1000)}"
             
             message_data = request_data.get("message")
-            if not message_data:
-                raise ValueError("message is required")
+            if not message_data or not isinstance(message_data, dict):
+                raise ValueError("message object is required")
             
-            message_text = message_data.get("text")
-            if not message_text:
-                raise ValueError("message.text is required")
+            message_text = message_data.get("text", "")
+            if not message_text or not isinstance(message_text, str):
+                raise ValueError("message.text must be a non-empty string")
+            
+            # Ensure message_text is not too long (prevent abuse)
+            if len(message_text) > 5000:
+                message_text = message_text[:5000]
             
             history_data = request_data.get("conversationHistory", [])
+            if not isinstance(history_data, list):
+                history_data = []
+            
+            # Limit history size to prevent memory issues
+            if len(history_data) > 50:
+                history_data = history_data[-50:]
             
             # Get session data
             session = get_session_data(session_id)
@@ -494,23 +515,27 @@ class handler(BaseHTTPRequestHandler):
             # STEP 4: Extract Intelligence
             intelligence = extract_intelligence_advanced(updated_history)
             
-            # STEP 5: Check if callback should be sent
-            if not session["callback_sent"] and scam_analysis["detected"]:
+            # STEP 5: Check if callback should be sent (with safety check)
+            if not session.get("callback_sent", False) and scam_analysis["detected"]:
                 if should_send_callback(len(updated_history), intelligence, True):
                     conversation_summary = f"Agent maintained {session['persona']} persona. "
                     conversation_summary += "Scammer attempted to extract sensitive information. "
                     conversation_summary += "Agent successfully engaged without revealing detection."
                     
-                    callback_success = send_guvi_callback(
-                        session_id=session_id,
-                        total_messages=len(updated_history),
-                        intelligence=intelligence,
-                        scam_type=session["scam_type"],
-                        conversation_summary=conversation_summary
-                    )
-                    
-                    if callback_success:
-                        session["callback_sent"] = True
+                    try:
+                        callback_success = send_guvi_callback(
+                            session_id=session_id,
+                            total_messages=len(updated_history),
+                            intelligence=intelligence,
+                            scam_type=session["scam_type"],
+                            conversation_summary=conversation_summary
+                        )
+                        
+                        if callback_success:
+                            session["callback_sent"] = True
+                    except Exception as callback_error:
+                        # Don't fail the request if callback fails
+                        print(f"Callback failed: {str(callback_error)}")
             
             # STEP 6: Return response
             response = {
