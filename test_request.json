@@ -1,0 +1,16 @@
+{
+  "conversation_id": "conv_12345",
+  "message": "Congratulations! You won ₹50,000. Send ₹500 processing fee to claim at winner@paytm",
+  "conversation_history": [
+    {
+      "role": "scammer",
+      "content": "Hello! This is from RBI fraud department.",
+      "timestamp": "2026-02-03T10:30:00Z"
+    },
+    {
+      "role": "agent",
+      "content": "Oh really? What happened?",
+      "timestamp": "2026-02-03T10:30:15Z"
+    }
+  ]
+}
