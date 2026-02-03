@@ -23,10 +23,16 @@ Examples:
 - "How much do I need to pay? I'll send immediately."
 - "Please help me, sir. I have my salary in account." """
         }
+        self.session_personas = {}  # Track persona per session
     
-    async def generate_response(self, message: str, conversation_id: str, history: list, scam_detected: bool):
-        # Choose persona
-        persona_type = random.choice(list(self.personas.keys()))
+    async def generate_response(self, message_text: str, session_id: str, history: list, scam_detected: bool):
+        """Generate human-like response to engage scammer"""
+        
+        # Choose consistent persona for this session
+        if session_id not in self.session_personas:
+            self.session_personas[session_id] = random.choice(list(self.personas.keys()))
+        
+        persona_type = self.session_personas[session_id]
         persona_context = self.personas[persona_type]
         
         # Build conversation for Groq
@@ -34,23 +40,32 @@ Examples:
             {"role": "system", "content": persona_context},
         ]
         
-        # Add recent history (last 5 turns)
-        for turn in history[-5:]:
-            if turn.role == "scammer":
-                messages.append({"role": "user", "content": turn.content})
-            elif turn.role == "agent":
-                messages.append({"role": "assistant", "content": turn.content})
+        # Add recent history (last 6 turns for context)
+        for msg in history[-6:]:
+            if msg.sender == "scammer":
+                messages.append({"role": "user", "content": msg.text})
+            elif msg.sender == "user":
+                messages.append({"role": "assistant", "content": msg.text})
         
         # Add current message
-        messages.append({"role": "user", "content": message})
+        messages.append({"role": "user", "content": message_text})
         
         # Generate response using Groq
-        completion = self.client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
-            messages=messages,
-            temperature=0.9,
-            max_tokens=100,
-            top_p=0.95
-        )
-        
-        return completion.choices[0].message.content
+        try:
+            completion = self.client.chat.completions.create(
+                model="llama-3.1-70b-versatile",
+                messages=messages,
+                temperature=0.9,
+                max_tokens=100,
+                top_p=0.95
+            )
+            return completion.choices[0].message.content
+        except Exception as e:
+            # Fallback responses if API fails
+            fallback_responses = [
+                "What do you mean? Can you explain more?",
+                "I'm worried. What should I do?",
+                "Okay, tell me the details.",
+                "How can I fix this problem?"
+            ]
+            return random.choice(fallback_responses)

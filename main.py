@@ -1,17 +1,18 @@
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
-from models.request_models import HoneypotRequest
-from models.response_models import HoneypotResponse
+from models.request_models import HoneypotRequest, Message
+from models.response_models import HoneypotResponse, ExtractedIntelligence
 from agents.scam_detector import ScamDetector
 from agents.persona_agent import PersonaAgent
 from agents.intelligence_extractor import IntelligenceExtractor
-from agents.engagement_tracker import EngagementTracker
-from services.redis_service import RedisService
-from services.supabase_service import SupabaseService
-from utils.auth import verify_api_key
+from services.guvi_callback import GuviCallbackService
 import os
 from datetime import datetime
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ScamShield Honeypot API")
 
@@ -23,37 +24,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Check required environment variables
-required_vars = ["GROQ_API_KEY", "UPSTASH_REDIS_URL", "SUPABASE_URL", "SUPABASE_KEY", "API_KEY"]
-missing_vars = [var for var in required_vars if not os.getenv(var)]
+# Initialize agents
+scam_detector = ScamDetector()
+persona_agent = PersonaAgent(api_key=os.getenv("GROQ_API_KEY", ""))
+intelligence_extractor = IntelligenceExtractor()
+guvi_callback = GuviCallbackService()
 
-if missing_vars:
-    print(f"Warning: Missing environment variables: {', '.join(missing_vars)}")
-    # Don't raise error, let it fail gracefully
-
-# Initialize services
-try:
-    redis_service = RedisService(os.getenv("UPSTASH_REDIS_URL"))
-    supabase_service = SupabaseService(
-        os.getenv("SUPABASE_URL"),
-        os.getenv("SUPABASE_KEY")
-    )
-    
-    # Initialize agents
-    scam_detector = ScamDetector()
-    persona_agent = PersonaAgent(api_key=os.getenv("GROQ_API_KEY"))
-    intelligence_extractor = IntelligenceExtractor()
-    engagement_tracker = EngagementTracker()
-except Exception as e:
-    print(f"Initialization error: {str(e)}")
-    # Services will be None, endpoints will handle gracefully
+# Simple in-memory session tracking (for production, use Redis)
+session_data = {}
 
 @app.get("/")
 async def root():
     return {
         "service": "ScamShield Honeypot API",
         "status": "active",
-        "version": "1.0.0"
+        "version": "2.0.0",
+        "competition": "GUVI Agentic Honey-Pot Challenge"
     }
 
 @app.get("/health")
@@ -68,79 +54,103 @@ async def honeypot_endpoint(
     request: HoneypotRequest,
     x_api_key: str = Header(..., alias="x-api-key")
 ):
+    """
+    Main honeypot endpoint - accepts scam messages and returns agent responses
+    Format matches GUVI competition requirements
+    """
+    
     # Verify API key
-    if not verify_api_key(x_api_key):
+    expected_key = os.getenv("API_KEY", "your-secret-key")
+    if x_api_key != expected_key:
         raise HTTPException(status_code=401, detail="Invalid API key")
     
     try:
+        session_id = request.sessionId
+        current_message = request.message
+        history = request.conversationHistory
+        
         # Step 1: Detect scam intent
         scam_analysis = scam_detector.analyze(
-            message=request.message,
-            history=request.conversation_history
+            message_text=current_message.text,
+            history=history
         )
         
+        logger.info(f"Session {session_id}: Scam detected={scam_analysis['detected']}, confidence={scam_analysis['confidence']}")
+        
         # Step 2: Generate persona response
-        agent_response = await persona_agent.generate_response(
-            message=request.message,
-            conversation_id=request.conversation_id,
-            history=request.conversation_history,
+        agent_reply = await persona_agent.generate_response(
+            message_text=current_message.text,
+            session_id=session_id,
+            history=history,
             scam_detected=scam_analysis["detected"]
         )
         
-        # Step 3: Extract intelligence
-        extracted_intel = intelligence_extractor.extract(
-            message=request.message,
-            response=agent_response
-        )
+        # Step 3: Update conversation history with agent's response
+        updated_history = history + [
+            current_message,
+            Message(sender="user", text=agent_reply, timestamp=current_message.timestamp)
+        ]
         
-        # Step 4: Track engagement metrics
-        metrics = engagement_tracker.calculate(
-            conversation_id=request.conversation_id,
-            history=request.conversation_history,
-            new_turn={
-                "scammer": request.message,
-                "agent": agent_response
+        # Step 4: Extract intelligence from full conversation
+        extracted_intel = intelligence_extractor.extract(updated_history)
+        
+        # Step 5: Track session data
+        if session_id not in session_data:
+            session_data[session_id] = {
+                "scam_detected": scam_analysis["detected"],
+                "scam_type": scam_analysis.get("scam_type", "unknown"),
+                "start_time": datetime.utcnow(),
+                "message_count": 0
             }
-        )
         
-        # Step 5: Store in database
-        await supabase_service.store_conversation(
-            conversation_id=request.conversation_id,
-            scam_analysis=scam_analysis,
+        session_data[session_id]["message_count"] = len(updated_history)
+        session_data[session_id]["last_intelligence"] = extracted_intel
+        
+        # Step 6: Check if conversation should end and send final callback
+        should_end = guvi_callback.should_end_conversation(
+            history_length=len(updated_history),
             intelligence=extracted_intel,
-            metrics=metrics
+            scam_detected=scam_analysis["detected"]
         )
         
-        # Step 6: Update Redis state
-        await redis_service.update_conversation(
-            conversation_id=request.conversation_id,
-            message=request.message,
-            response=agent_response
-        )
+        if should_end and scam_analysis["detected"]:
+            # Generate agent notes
+            agent_notes = f"Scam type: {scam_analysis.get('scam_type', 'unknown')}. "
+            agent_notes += f"Engagement: {len(updated_history)} messages exchanged. "
+            
+            if extracted_intel.upiIds:
+                agent_notes += "Extracted UPI IDs. "
+            if extracted_intel.bankAccounts:
+                agent_notes += "Extracted bank accounts. "
+            if extracted_intel.phishingLinks:
+                agent_notes += "Detected phishing links. "
+            
+            agent_notes += "Scammer used urgency tactics and attempted to extract sensitive information."
+            
+            # Send final result to GUVI
+            callback_success = await guvi_callback.send_final_result(
+                session_id=session_id,
+                scam_detected=True,
+                total_messages=len(updated_history),
+                intelligence=extracted_intel,
+                agent_notes=agent_notes
+            )
+            
+            logger.info(f"Session {session_id}: Final callback sent, success={callback_success}")
         
-        # Return response
+        # Return simple response format as per competition requirements
         return HoneypotResponse(
             status="success",
-            scam_detected=scam_analysis["detected"],
-            confidence_score=scam_analysis["confidence"],
-            scam_type=scam_analysis["scam_type"],
-            agent_response=agent_response,
-            conversation_turns=len(request.conversation_history) + 1,
-            extracted_intelligence=extracted_intel,
-            engagement_metrics=metrics
+            reply=agent_reply
         )
         
     except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
-
-
-# Vercel serverless handler
-handler = Mangum(app)
-
 
 # Vercel serverless handler
 handler = Mangum(app)

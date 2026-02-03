@@ -1,24 +1,20 @@
 from pydantic import BaseModel
-from typing import List, Dict
-
-class ExtractedIntelligence(BaseModel):
-    upi_ids: List[str] = []
-    phone_numbers: List[str] = []
-    bank_accounts: List[str] = []
-    phishing_urls: List[str] = []
-    keywords: List[str] = []
-
-class EngagementMetrics(BaseModel):
-    conversation_duration_seconds: int
-    scammer_engagement_level: str
-    intelligence_quality: str
+from typing import List, Dict, Optional
 
 class HoneypotResponse(BaseModel):
     status: str
-    scam_detected: bool
-    confidence_score: float
-    scam_type: str
-    agent_response: str
-    conversation_turns: int
-    extracted_intelligence: ExtractedIntelligence
-    engagement_metrics: EngagementMetrics
+    reply: str
+
+class ExtractedIntelligence(BaseModel):
+    bankAccounts: List[str] = []
+    upiIds: List[str] = []
+    phishingLinks: List[str] = []
+    phoneNumbers: List[str] = []
+    suspiciousKeywords: List[str] = []
+
+class FinalResultPayload(BaseModel):
+    sessionId: str
+    scamDetected: bool
+    totalMessagesExchanged: int
+    extractedIntelligence: ExtractedIntelligence
+    agentNotes: str
