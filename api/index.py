@@ -258,6 +258,9 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(response).encode())
     
     def do_POST(self):
+        # Log everything for debugging
+        print(f"[REQUEST] Headers: {dict(self.headers)}")
+        
         # Always return success, no matter what
         try:
             # Verify API key (optional - allow requests without key for GUVI testing)
@@ -266,6 +269,7 @@ class handler(BaseHTTPRequestHandler):
             
             # Only check API key if one is configured
             if expected_key and api_key != expected_key:
+                print(f"[AUTH] Invalid API key: {api_key}")
                 self.send_response(401)
                 self.send_header('Content-type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
@@ -279,16 +283,21 @@ class handler(BaseHTTPRequestHandler):
             # Read request - be very lenient
             content_length = int(self.headers.get('Content-Length', 0))
             request_data = {}
+            raw_body = ""
             
             if content_length > 0:
                 try:
                     post_data = self.rfile.read(content_length)
-                    request_data = json.loads(post_data.decode('utf-8'))
-                except:
+                    raw_body = post_data.decode('utf-8')
+                    print(f"[REQUEST] Raw body: {raw_body}")
+                    request_data = json.loads(raw_body)
+                    print(f"[REQUEST] Parsed JSON: {json.dumps(request_data, indent=2)}")
+                except Exception as e:
+                    print(f"[ERROR] JSON parse failed: {str(e)}")
                     # If JSON fails, just use default
                     request_data = {
                         "sessionId": "default",
-                        "message": {"text": "Hello"}
+                        "message": {"text": "Hello", "sender": "scammer", "timestamp": 0}
                     }
             
             # Extract session ID and conversation history
@@ -311,6 +320,8 @@ class handler(BaseHTTPRequestHandler):
             
             # Generate dynamic response using Groq
             reply = generate_groq_response(message_text, session_id, conversation_history, scam_type)
+            
+            print(f"[RESPONSE] Session: {session_id}, Scam: {scam_type}, Reply: {reply}")
             
             # Always return success
             response = {
