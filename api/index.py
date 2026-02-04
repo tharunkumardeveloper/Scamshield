@@ -3,9 +3,14 @@ import json
 import os
 import re
 import random
+import requests
+from threading import Thread
 
 # Simple, stateless, bulletproof implementation
 # Works EVERY time, no session management issues
+
+# Session tracking (in-memory)
+session_callbacks = {}  # Track which sessions have sent callbacks
 
 SIMPLE_RESPONSES = [
     "Oh no, what happened? What should I do?",
@@ -29,6 +34,81 @@ SIMPLE_RESPONSES = [
     "Please help me, I don't want any problem.",
     "I'm confused. Please explain slowly."
 ]
+
+def extract_intelligence(conversation_history):
+    """Extract intelligence from conversation"""
+    all_text = " ".join([msg.get("text", "") for msg in conversation_history])
+    
+    # Extract UPI IDs
+    upi_pattern = r'\b[\w\.-]+@[\w\.-]+\b'
+    upi_ids = list(set(re.findall(upi_pattern, all_text)))
+    
+    # Extract bank accounts (10-18 digits)
+    account_pattern = r'\b\d{10,18}\b'
+    bank_accounts = list(set(re.findall(account_pattern, all_text)))
+    
+    # Extract URLs
+    url_pattern = r'https?://[^\s]+'
+    phishing_links = list(set(re.findall(url_pattern, all_text)))
+    
+    # Extract phone numbers
+    phone_pattern = r'\+?91[-\s]?\d{10}|\b\d{10}\b'
+    phone_numbers = list(set(re.findall(phone_pattern, all_text)))
+    
+    # Suspicious keywords
+    keywords = ["urgent", "blocked", "verify", "immediately", "suspended", "account", 
+                "bank", "upi", "pay", "transfer", "click", "link"]
+    suspicious_keywords = [kw for kw in keywords if kw in all_text.lower()]
+    
+    return {
+        "bankAccounts": bank_accounts,
+        "upiIds": upi_ids,
+        "phishingLinks": phishing_links,
+        "phoneNumbers": phone_numbers,
+        "suspiciousKeywords": suspicious_keywords
+    }
+
+def send_guvi_callback(session_id, conversation_history, intelligence):
+    """Send final callback to GUVI (runs in background thread)"""
+    try:
+        total_messages = len(conversation_history)
+        
+        # Detect if scam
+        scam_detected = any([
+            intelligence["upiIds"],
+            intelligence["bankAccounts"],
+            intelligence["phishingLinks"],
+            len(intelligence["suspiciousKeywords"]) >= 3
+        ])
+        
+        # Generate agent notes
+        notes = f"Conversation with {total_messages} messages. "
+        if intelligence["upiIds"]:
+            notes += f"Extracted {len(intelligence['upiIds'])} UPI IDs. "
+        if intelligence["bankAccounts"]:
+            notes += f"Extracted {len(intelligence['bankAccounts'])} bank accounts. "
+        if intelligence["phishingLinks"]:
+            notes += f"Detected {len(intelligence['phishingLinks'])} phishing links. "
+        notes += "Scammer used urgency tactics and attempted to extract sensitive information."
+        
+        payload = {
+            "sessionId": session_id,
+            "scamDetected": scam_detected,
+            "totalMessagesExchanged": total_messages,
+            "extractedIntelligence": intelligence,
+            "agentNotes": notes
+        }
+        
+        response = requests.post(
+            "https://hackathon.guvi.in/api/updateHoneyPotFinalResult",
+            json=payload,
+            timeout=5
+        )
+        
+        print(f"[CALLBACK] Session {session_id}: Status {response.status_code}")
+        
+    except Exception as e:
+        print(f"[CALLBACK] Error: {str(e)}")
 
 class handler(BaseHTTPRequestHandler):
     
@@ -88,6 +168,10 @@ class handler(BaseHTTPRequestHandler):
                         "message": {"text": "Hello"}
                     }
             
+            # Extract session ID and conversation history
+            session_id = request_data.get("sessionId", "unknown")
+            conversation_history = request_data.get("conversationHistory", [])
+            
             # Extract message text - be very lenient
             message_text = "Hello"
             try:
@@ -145,6 +229,25 @@ class handler(BaseHTTPRequestHandler):
                 "status": "success",
                 "reply": reply
             }
+            
+            # Check if we should send callback to GUVI
+            # Add current message to history for intelligence extraction
+            updated_history = conversation_history + [
+                request_data.get("message", {}),
+                {"sender": "user", "text": reply, "timestamp": request_data.get("message", {}).get("timestamp", 0)}
+            ]
+            
+            total_messages = len(updated_history)
+            
+            # Send callback after 6+ messages if not already sent
+            if total_messages >= 6 and session_id not in session_callbacks:
+                session_callbacks[session_id] = True
+                intelligence = extract_intelligence(updated_history)
+                
+                # Send callback in background thread (don't block response)
+                thread = Thread(target=send_guvi_callback, args=(session_id, updated_history, intelligence))
+                thread.daemon = True
+                thread.start()
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
