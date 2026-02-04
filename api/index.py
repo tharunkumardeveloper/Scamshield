@@ -5,12 +5,23 @@ import re
 import random
 import requests
 from threading import Thread
+from groq import Groq
 
 # Simple, stateless, bulletproof implementation
 # Works EVERY time, no session management issues
 
+# Initialize Groq client
+groq_client = None
+try:
+    groq_api_key = os.getenv("GROQ_API_KEY", "")
+    if groq_api_key:
+        groq_client = Groq(api_key=groq_api_key)
+except:
+    pass
+
 # Session tracking (in-memory)
 session_callbacks = {}  # Track which sessions have sent callbacks
+session_personas = {}  # Track persona per session
 
 SIMPLE_RESPONSES = [
     "Oh no, what happened? What should I do?",
@@ -34,6 +45,118 @@ SIMPLE_RESPONSES = [
     "Please help me, I don't want any problem.",
     "I'm confused. Please explain slowly."
 ]
+
+def detect_scam_type(text):
+    """Detect scam type from message"""
+    text_lower = text.lower()
+    
+    if any(word in text_lower for word in ["bank", "account", "blocked", "kyc", "verify"]):
+        return "bank_fraud"
+    elif any(word in text_lower for word in ["upi", "paytm", "gpay", "phonepe"]):
+        return "upi_fraud"
+    elif any(word in text_lower for word in ["lottery", "won", "prize", "claim"]):
+        return "lottery"
+    elif any(word in text_lower for word in ["police", "arrest", "cyber", "crime"]):
+        return "digital_arrest"
+    elif any(word in text_lower for word in ["job", "work from home", "earn"]):
+        return "job_scam"
+    else:
+        return "general_scam"
+
+def get_persona_for_scam(scam_type):
+    """Select persona based on scam type"""
+    personas = {
+        "bank_fraud": "naive_student",
+        "upi_fraud": "naive_student",
+        "lottery": "confused_elderly",
+        "digital_arrest": "confused_elderly",
+        "job_scam": "desperate_worker",
+        "general_scam": "naive_student"
+    }
+    return personas.get(scam_type, "naive_student")
+
+def generate_groq_response(message_text, session_id, conversation_history, scam_type):
+    """Generate dynamic response using Groq AI"""
+    
+    if not groq_client:
+        # Fallback to predefined responses
+        return random.choice(SIMPLE_RESPONSES)
+    
+    try:
+        # Get or set persona for this session
+        if session_id not in session_personas:
+            session_personas[session_id] = get_persona_for_scam(scam_type)
+        
+        persona = session_personas[session_id]
+        
+        # Persona prompts
+        persona_prompts = {
+            "naive_student": """You are a 19-year-old college student. You're tech-savvy but trusting and easily worried. 
+You ask basic questions, show concern about consequences, and are cooperative. Keep responses SHORT (1-2 sentences max).
+Never reveal you know it's a scam. Act genuinely concerned and willing to help.""",
+            
+            "confused_elderly": """You are a 65-year-old person who is not tech-savvy. You need step-by-step guidance,
+are polite and cautious, and often mention family. Keep responses SHORT (1-2 sentences max).
+Never reveal you know it's a scam. Act genuinely confused and need help.""",
+            
+            "desperate_worker": """You are a 35-year-old working professional who is skeptical but time-conscious.
+You're direct, want quick resolution, but question legitimacy. Keep responses SHORT (1-2 sentences max).
+Never reveal you know it's a scam. Act busy but concerned."""
+        }
+        
+        system_prompt = persona_prompts.get(persona, persona_prompts["naive_student"])
+        
+        # Build conversation context
+        context = ""
+        if conversation_history:
+            recent = conversation_history[-4:]  # Last 4 messages
+            for msg in recent:
+                sender = msg.get("sender", "unknown")
+                text = msg.get("text", "")
+                context += f"{sender}: {text}\n"
+        
+        context += f"scammer: {message_text}\n"
+        
+        # Generate response
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Respond to this message naturally. Keep it SHORT (1-2 sentences):\n\n{context}"}
+            ],
+            temperature=0.8,
+            max_tokens=100,
+            timeout=3
+        )
+        
+        reply = response.choices[0].message.content.strip()
+        
+        # Ensure it's short
+        if len(reply) > 200:
+            reply = reply[:197] + "..."
+        
+        return reply
+        
+    except Exception as e:
+        print(f"[GROQ ERROR] {str(e)}")
+        # Fallback to context-aware predefined response
+        text_lower = message_text.lower()
+        
+        if any(word in text_lower for word in ["account", "blocked", "suspended", "bank"]):
+            return random.choice([
+                "Oh no, what happened? What should I do?",
+                "Is this from my bank? How do I know?",
+                "This sounds serious. Can you help me?"
+            ])
+        elif any(word in text_lower for word in ["upi", "pay", "send", "transfer", "money"]):
+            return random.choice([
+                "Where should I send the money?",
+                "Can I use Google Pay?",
+                "What's the UPI ID?",
+                "How much do I need to pay?"
+            ])
+        else:
+            return random.choice(SIMPLE_RESPONSES)
 
 def extract_intelligence(conversation_history):
     """Extract intelligence from conversation"""
@@ -183,46 +306,11 @@ class handler(BaseHTTPRequestHandler):
             except:
                 message_text = "Hello"
             
-            # Generate response based on message content
-            reply = ""
-            if message_text:
-                text_lower = message_text.lower()
-                
-                # Choose appropriate response based on content
-                if any(word in text_lower for word in ["account", "blocked", "suspended", "bank"]):
-                    reply = random.choice([
-                        "Oh no, what happened? What should I do?",
-                        "Is this from my bank? How do I know?",
-                        "This sounds serious. Can you help me?"
-                    ])
-                elif any(word in text_lower for word in ["upi", "pay", "send", "transfer", "money"]):
-                    reply = random.choice([
-                        "Where should I send the money?",
-                        "Can I use Google Pay?",
-                        "What's the UPI ID?",
-                        "How much do I need to pay?"
-                    ])
-                elif any(word in text_lower for word in ["verify", "confirm", "share", "provide"]):
-                    reply = random.choice([
-                        "What information do you need?",
-                        "What specific details do you need?",
-                        "Okay, I want to help. What should I do?"
-                    ])
-                elif any(word in text_lower for word in ["urgent", "immediately", "now", "quickly"]):
-                    reply = random.choice([
-                        "I'm worried. Please tell me what to do.",
-                        "This is urgent? What happens if I don't do it now?",
-                        "Please help me, I don't want any problem."
-                    ])
-                else:
-                    reply = random.choice([
-                        "I don't understand. Can you explain?",
-                        "Can you tell me more details?",
-                        "What does this mean?"
-                    ])
-            else:
-                # Default response if no message
-                reply = "I don't understand. Can you explain?"
+            # Detect scam type
+            scam_type = detect_scam_type(message_text)
+            
+            # Generate dynamic response using Groq
+            reply = generate_groq_response(message_text, session_id, conversation_history, scam_type)
             
             # Always return success
             response = {
