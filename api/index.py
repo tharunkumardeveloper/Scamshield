@@ -72,27 +72,45 @@ class handler(BaseHTTPRequestHandler):
                 }).encode())
                 return
             
-            # Read request
+            # Read request - handle any format
             content_length = int(self.headers.get('Content-Length', 0))
-            if content_length > 0:
-                post_data = self.rfile.read(content_length)
-                try:
-                    request_data = json.loads(post_data.decode('utf-8'))
-                except:
-                    request_data = {}
-            else:
-                request_data = {}
+            request_data = {}
             
-            # Extract message text (try multiple paths)
+            if content_length > 0:
+                try:
+                    post_data = self.rfile.read(content_length)
+                    request_data = json.loads(post_data.decode('utf-8'))
+                except Exception as e:
+                    # If JSON parsing fails, try to extract text
+                    try:
+                        raw_text = post_data.decode('utf-8')
+                        request_data = {"message": {"text": raw_text}}
+                    except:
+                        request_data = {}
+            
+            # Extract message text (handle multiple formats)
             message_text = ""
             try:
+                # Try standard format: message.text
                 message_data = request_data.get("message", {})
                 if isinstance(message_data, dict):
                     message_text = message_data.get("text", "")
+                elif isinstance(message_data, str):
+                    message_text = message_data
+                
+                # Try alternate formats
                 if not message_text:
                     message_text = request_data.get("text", "")
+                if not message_text:
+                    message_text = request_data.get("content", "")
+                if not message_text:
+                    # Try to find any text field
+                    for key in request_data:
+                        if isinstance(request_data[key], str) and len(request_data[key]) > 0:
+                            message_text = request_data[key]
+                            break
             except:
-                pass
+                message_text = "Hello"
             
             # Generate response based on message content
             reply = ""
