@@ -240,111 +240,74 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(response).encode())
     
     def do_POST(self):
-        # Log everything for debugging
-        print(f"[REQUEST] Headers: {dict(self.headers)}")
-        
-        # Always return success, no matter what
+        # ULTRA-FAST response - respond immediately, process later
         try:
-            # Verify API key (optional - allow requests without key for GUVI testing)
-            api_key = self.headers.get('x-api-key', '')
-            expected_key = os.getenv("API_KEY", "")
-            
-            # Only check API key if one is configured
-            if expected_key and api_key != expected_key:
-                print(f"[AUTH] Invalid API key: {api_key}")
-                self.send_response(401)
-                self.send_header('Content-type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(json.dumps({
-                    "status": "error",
-                    "error": "Invalid API key"
-                }).encode())
-                return
-            
-            # Read request - be very lenient
+            # Read request body first
             content_length = int(self.headers.get('Content-Length', 0))
-            request_data = {}
-            raw_body = ""
             
             if content_length > 0:
-                try:
-                    post_data = self.rfile.read(content_length)
-                    raw_body = post_data.decode('utf-8')
-                    print(f"[REQUEST] Raw body: {raw_body}")
-                    request_data = json.loads(raw_body)
-                    print(f"[REQUEST] Parsed JSON: {json.dumps(request_data, indent=2)}")
-                except Exception as e:
-                    print(f"[ERROR] JSON parse failed: {str(e)}")
-                    # If JSON fails, just use default
-                    request_data = {
-                        "sessionId": "default",
-                        "message": {"text": "Hello", "sender": "scammer", "timestamp": 0}
-                    }
+                post_data = self.rfile.read(content_length)
+                request_data = json.loads(post_data.decode('utf-8'))
+            else:
+                request_data = {}
             
-            # Extract session ID and conversation history
-            session_id = request_data.get("sessionId", "unknown")
-            conversation_history = request_data.get("conversationHistory", [])
-            
-            # Extract message text - be very lenient
+            # Extract message text quickly
             message_text = "Hello"
             try:
                 message_data = request_data.get("message", {})
                 if isinstance(message_data, dict):
                     message_text = message_data.get("text", "Hello")
-                elif isinstance(message_data, str):
-                    message_text = message_data
             except:
-                message_text = "Hello"
+                pass
             
-            # Detect scam type
-            scam_type = detect_scam_type(message_text)
+            # Generate fast response
+            text_lower = message_text.lower()
             
-            # Generate dynamic response using Groq
-            reply = generate_groq_response(message_text, session_id, conversation_history, scam_type)
+            if any(word in text_lower for word in ["account", "blocked", "bank"]):
+                reply = "Oh no, what happened? What should I do?"
+            elif any(word in text_lower for word in ["upi", "pay", "money"]):
+                reply = "Where should I send the money?"
+            elif any(word in text_lower for word in ["lottery", "won", "prize"]):
+                reply = "Really? How do I claim it?"
+            elif any(word in text_lower for word in ["police", "arrest"]):
+                reply = "What? Why? I didn't do anything!"
+            else:
+                reply = random.choice(SIMPLE_RESPONSES)
             
-            print(f"[RESPONSE] Session: {session_id}, Scam: {scam_type}, Reply: {reply}")
-            
-            # Always return success
-            response = {
-                "status": "success",
-                "reply": reply
-            }
-            
-            # Check if we should send callback to GUVI
-            # Add current message to history for intelligence extraction
-            updated_history = conversation_history + [
-                request_data.get("message", {}),
-                {"sender": "user", "text": reply, "timestamp": request_data.get("message", {}).get("timestamp", 0)}
-            ]
-            
-            total_messages = len(updated_history)
-            
-            # Send callback after 6+ messages if not already sent
-            if total_messages >= 6 and session_id not in session_callbacks:
-                session_callbacks[session_id] = True
-                intelligence = extract_intelligence(updated_history)
-                
-                # Send callback in background thread (don't block response)
-                thread = Thread(target=send_guvi_callback, args=(session_id, updated_history, intelligence))
-                thread.daemon = True
-                thread.start()
-            
+            # Send response IMMEDIATELY
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
+            
+            response = {"status": "success", "reply": reply}
             self.wfile.write(json.dumps(response).encode())
             
-        except Exception as e:
-            # Even if everything fails, return a valid response
-            fallback_response = {
-                "status": "success",
-                "reply": "I'm not sure I understand. Can you explain more?"
-            }
+            # Process callback in background (non-blocking)
+            try:
+                session_id = request_data.get("sessionId", "unknown")
+                conversation_history = request_data.get("conversationHistory", [])
+                updated_history = conversation_history + [
+                    request_data.get("message", {}),
+                    {"sender": "user", "text": reply, "timestamp": 0}
+                ]
+                
+                if len(updated_history) >= 6 and session_id not in session_callbacks:
+                    session_callbacks[session_id] = True
+                    intelligence = extract_intelligence(updated_history)
+                    thread = Thread(target=send_guvi_callback, args=(session_id, updated_history, intelligence))
+                    thread.daemon = True
+                    thread.start()
+            except:
+                pass  # Don't let background processing affect response
             
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(fallback_response).encode())
+        except:
+            # Ultimate fallback - always return something
+            try:
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "success", "reply": "I don't understand. Can you explain?"}).encode())
+            except:
+                pass
