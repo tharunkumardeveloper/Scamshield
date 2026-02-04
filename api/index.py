@@ -57,11 +57,12 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         # Always return success, no matter what
         try:
-            # Verify API key
+            # Verify API key (optional - allow requests without key for GUVI testing)
             api_key = self.headers.get('x-api-key', '')
-            expected_key = os.getenv("API_KEY", "your-secret-key")
+            expected_key = os.getenv("API_KEY", "")
             
-            if api_key != expected_key:
+            # Only check API key if one is configured
+            if expected_key and api_key != expected_key:
                 self.send_response(401)
                 self.send_header('Content-type', 'application/json')
                 self.send_header('Access-Control-Allow-Origin', '*')
@@ -81,36 +82,56 @@ class handler(BaseHTTPRequestHandler):
                     post_data = self.rfile.read(content_length)
                     request_data = json.loads(post_data.decode('utf-8'))
                 except Exception as e:
-                    # If JSON parsing fails, try to extract text
-                    try:
-                        raw_text = post_data.decode('utf-8')
-                        request_data = {"message": {"text": raw_text}}
-                    except:
-                        request_data = {}
+                    # Return error for invalid JSON
+                    self.send_response(400)
+                    self.send_header('Content-type', 'application/json')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "status": "error",
+                        "error": "Invalid JSON format"
+                    }).encode())
+                    return
             
-            # Extract message text (handle multiple formats)
+            # Validate GUVI format - must have sessionId and message
+            if "sessionId" not in request_data or "message" not in request_data:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "error",
+                    "error": "Missing required fields: sessionId and message"
+                }).encode())
+                return
+            
+            # Extract message text (GUVI format: message.text)
             message_text = ""
             try:
-                # Try standard format: message.text
                 message_data = request_data.get("message", {})
                 if isinstance(message_data, dict):
                     message_text = message_data.get("text", "")
-                elif isinstance(message_data, str):
-                    message_text = message_data
                 
-                # Try alternate formats
                 if not message_text:
-                    message_text = request_data.get("text", "")
-                if not message_text:
-                    message_text = request_data.get("content", "")
-                if not message_text:
-                    # Try to find any text field
-                    for key in request_data:
-                        if isinstance(request_data[key], str) and len(request_data[key]) > 0:
-                            message_text = request_data[key]
-                            break
-            except:
-                message_text = "Hello"
+                    self.send_response(400)
+                    self.send_header('Content-type', 'application/json')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "status": "error",
+                        "error": "Missing message.text field"
+                    }).encode())
+                    return
+            except Exception as e:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "error",
+                    "error": "Invalid message format"
+                }).encode())
+                return
             
             # Generate response based on message content
             reply = ""
