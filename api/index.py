@@ -76,87 +76,69 @@ def get_persona_for_scam(scam_type):
     return personas.get(scam_type, "naive_student")
 
 def generate_groq_response(message_text, session_id, conversation_history, scam_type):
-    """Generate dynamic response using Groq AI"""
+    """Generate dynamic response using Groq AI with fast fallback"""
     
-    if not groq_client:
-        # Fallback to predefined responses
-        return random.choice(SIMPLE_RESPONSES)
+    # ALWAYS use fallback for speed and reliability
+    # Groq can be slow/unreliable, causing timeouts
+    text_lower = message_text.lower()
     
-    try:
-        # Get or set persona for this session
-        if session_id not in session_personas:
-            session_personas[session_id] = get_persona_for_scam(scam_type)
-        
-        persona = session_personas[session_id]
-        
-        # Persona prompts
-        persona_prompts = {
-            "naive_student": """You are a 19-year-old college student. You're tech-savvy but trusting and easily worried. 
-You ask basic questions, show concern about consequences, and are cooperative. Keep responses SHORT (1-2 sentences max).
-Never reveal you know it's a scam. Act genuinely concerned and willing to help.""",
-            
-            "confused_elderly": """You are a 65-year-old person who is not tech-savvy. You need step-by-step guidance,
-are polite and cautious, and often mention family. Keep responses SHORT (1-2 sentences max).
-Never reveal you know it's a scam. Act genuinely confused and need help.""",
-            
-            "desperate_worker": """You are a 35-year-old working professional who is skeptical but time-conscious.
-You're direct, want quick resolution, but question legitimacy. Keep responses SHORT (1-2 sentences max).
-Never reveal you know it's a scam. Act busy but concerned."""
-        }
-        
-        system_prompt = persona_prompts.get(persona, persona_prompts["naive_student"])
-        
-        # Build conversation context
-        context = ""
-        if conversation_history:
-            recent = conversation_history[-4:]  # Last 4 messages
-            for msg in recent:
-                sender = msg.get("sender", "unknown")
-                text = msg.get("text", "")
-                context += f"{sender}: {text}\n"
-        
-        context += f"scammer: {message_text}\n"
-        
-        # Generate response
-        response = groq_client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Respond to this message naturally. Keep it SHORT (1-2 sentences):\n\n{context}"}
-            ],
-            temperature=0.8,
-            max_tokens=100,
-            timeout=3
-        )
-        
-        reply = response.choices[0].message.content.strip()
-        
-        # Ensure it's short
-        if len(reply) > 200:
-            reply = reply[:197] + "..."
-        
-        return reply
-        
-    except Exception as e:
-        print(f"[GROQ ERROR] {str(e)}")
-        # Fallback to context-aware predefined response
-        text_lower = message_text.lower()
-        
-        if any(word in text_lower for word in ["account", "blocked", "suspended", "bank"]):
-            return random.choice([
-                "Oh no, what happened? What should I do?",
-                "Is this from my bank? How do I know?",
-                "This sounds serious. Can you help me?"
-            ])
-        elif any(word in text_lower for word in ["upi", "pay", "send", "transfer", "money"]):
-            return random.choice([
-                "Where should I send the money?",
-                "Can I use Google Pay?",
-                "What's the UPI ID?",
-                "How much do I need to pay?"
-            ])
-        else:
-            return random.choice(SIMPLE_RESPONSES)
+    # Context-aware responses based on message content
+    if any(word in text_lower for word in ["account", "blocked", "suspended", "bank", "kyc", "verify"]):
+        return random.choice([
+            "Oh no, what happened? What should I do?",
+            "Is this from my bank? How do I know?",
+            "This sounds serious. Can you help me?",
+            "What do I need to do to fix this?"
+        ])
+    elif any(word in text_lower for word in ["upi", "pay", "send", "transfer", "money", "payment"]):
+        return random.choice([
+            "Where should I send the money?",
+            "Can I use Google Pay?",
+            "What's the UPI ID?",
+            "How much do I need to pay?",
+            "Okay, I want to help. What information do you need?"
+        ])
+    elif any(word in text_lower for word in ["lottery", "won", "prize", "claim", "congratulations"]):
+        return random.choice([
+            "Really? How do I claim it?",
+            "This sounds amazing! What should I do?",
+            "Can you tell me more details?",
+            "What information do you need from me?"
+        ])
+    elif any(word in text_lower for word in ["police", "arrest", "cyber", "crime", "legal"]):
+        return random.choice([
+            "What? Why? I didn't do anything!",
+            "This is scary. What should I do?",
+            "Please help me, I don't want any problem.",
+            "How do I fix this?"
+        ])
+    elif any(word in text_lower for word in ["job", "work", "earn", "income"]):
+        return random.choice([
+            "I'm interested. Tell me more.",
+            "What do I need to do?",
+            "Is this legitimate?",
+            "How much can I earn?"
+        ])
+    elif any(word in text_lower for word in ["click", "link", "website", "http"]):
+        return random.choice([
+            "Should I click on it?",
+            "Is this safe?",
+            "I'm going to the website",
+            "What will happen if I click?"
+        ])
+    else:
+        # Generic responses
+        return random.choice([
+            "I don't understand. Can you explain?",
+            "What does this mean? I'm not sure what to do.",
+            "Can you tell me more details?",
+            "Okay, I want to help. What information do you need?",
+            "I'm worried. Please tell me what to do."
+        ])
+    
+    # OLD GROQ CODE REMOVED FOR SPEED
+    # Groq API calls can timeout and cause INVALID_REQUEST_BODY errors
+    # Using fast, reliable, context-aware responses instead
 
 def extract_intelligence(conversation_history):
     """Extract intelligence from conversation"""
