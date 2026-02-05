@@ -217,97 +217,106 @@ def send_guvi_callback(session_id, conversation_history, intelligence):
 
 class handler(BaseHTTPRequestHandler):
     
-    def do_OPTIONS(self):
-        self.send_response(200)
+    def _send_cors_headers(self):
+        """Send all CORS headers"""
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, x-api-key')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD')
+        self.send_header('Access-Control-Allow-Headers', '*')
+        self.send_header('Access-Control-Max-Age', '86400')
+    
+    def do_OPTIONS(self):
+        """Handle CORS preflight"""
+        self.send_response(204)
+        self._send_cors_headers()
+        self.end_headers()
+    
+    def do_HEAD(self):
+        """Handle HEAD requests"""
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self._send_cors_headers()
         self.end_headers()
     
     def do_GET(self):
+        """Handle GET requests"""
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self._send_cors_headers()
         self.end_headers()
         
         response = {
             "service": "ScamShield Agentic Honeypot",
             "status": "active",
-            "version": "3.1.0",
-            "message": "Bulletproof stateless implementation"
+            "version": "4.0.0",
+            "endpoint": "/api/honeypot",
+            "methods": ["POST"],
+            "message": "Ready for GUVI evaluation"
         }
         
         self.wfile.write(json.dumps(response).encode())
     
     def do_POST(self):
-        # ULTRA-FAST response - respond immediately, process later
+        """Handle POST requests - ULTRA FAST"""
+        response_data = {"status": "success", "reply": "I don't understand. Can you explain?"}
+        
         try:
-            # Read request body first
+            # Read body FAST
             content_length = int(self.headers.get('Content-Length', 0))
             
-            if content_length > 0:
+            if content_length > 0 and content_length < 1000000:  # Max 1MB
                 post_data = self.rfile.read(content_length)
                 request_data = json.loads(post_data.decode('utf-8'))
-            else:
-                request_data = {}
-            
-            # Extract message text quickly
-            message_text = "Hello"
-            try:
+                
+                # Extract message FAST
+                message_text = "Hello"
                 message_data = request_data.get("message", {})
                 if isinstance(message_data, dict):
                     message_text = message_data.get("text", "Hello")
-            except:
-                pass
-            
-            # Generate fast response
-            text_lower = message_text.lower()
-            
-            if any(word in text_lower for word in ["account", "blocked", "bank"]):
-                reply = "Oh no, what happened? What should I do?"
-            elif any(word in text_lower for word in ["upi", "pay", "money"]):
-                reply = "Where should I send the money?"
-            elif any(word in text_lower for word in ["lottery", "won", "prize"]):
-                reply = "Really? How do I claim it?"
-            elif any(word in text_lower for word in ["police", "arrest"]):
-                reply = "What? Why? I didn't do anything!"
-            else:
-                reply = random.choice(SIMPLE_RESPONSES)
-            
-            # Send response IMMEDIATELY
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            
-            response = {"status": "success", "reply": reply}
-            self.wfile.write(json.dumps(response).encode())
-            
-            # Process callback in background (non-blocking)
-            try:
-                session_id = request_data.get("sessionId", "unknown")
-                conversation_history = request_data.get("conversationHistory", [])
-                updated_history = conversation_history + [
-                    request_data.get("message", {}),
-                    {"sender": "user", "text": reply, "timestamp": 0}
-                ]
                 
-                if len(updated_history) >= 6 and session_id not in session_callbacks:
-                    session_callbacks[session_id] = True
-                    intelligence = extract_intelligence(updated_history)
-                    thread = Thread(target=send_guvi_callback, args=(session_id, updated_history, intelligence))
-                    thread.daemon = True
-                    thread.start()
-            except:
-                pass  # Don't let background processing affect response
-            
+                # Generate reply FAST
+                text_lower = message_text.lower()
+                
+                if "account" in text_lower or "blocked" in text_lower or "bank" in text_lower:
+                    reply = "Oh no, what happened? What should I do?"
+                elif "upi" in text_lower or "pay" in text_lower or "money" in text_lower:
+                    reply = "Where should I send the money?"
+                elif "lottery" in text_lower or "won" in text_lower or "prize" in text_lower:
+                    reply = "Really? How do I claim it?"
+                elif "police" in text_lower or "arrest" in text_lower:
+                    reply = "What? Why? I didn't do anything!"
+                else:
+                    reply = random.choice(SIMPLE_RESPONSES)
+                
+                response_data = {"status": "success", "reply": reply}
+                
+                # Background processing (non-blocking)
+                try:
+                    session_id = request_data.get("sessionId", "unknown")
+                    conversation_history = request_data.get("conversationHistory", [])
+                    updated_history = conversation_history + [
+                        message_data,
+                        {"sender": "user", "text": reply, "timestamp": 0}
+                    ]
+                    
+                    if len(updated_history) >= 6 and session_id not in session_callbacks:
+                        session_callbacks[session_id] = True
+                        intelligence = extract_intelligence(updated_history)
+                        thread = Thread(target=send_guvi_callback, args=(session_id, updated_history, intelligence))
+                        thread.daemon = True
+                        thread.start()
+                except:
+                    pass
+        
         except:
-            # Ultimate fallback - always return something
-            try:
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.end_headers()
-                self.wfile.write(json.dumps({"status": "success", "reply": "I don't understand. Can you explain?"}).encode())
-            except:
-                pass
+            pass  # Use default response
+        
+        # Send response IMMEDIATELY
+        try:
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json; charset=utf-8')
+            self._send_cors_headers()
+            self.send_header('Content-Length', str(len(json.dumps(response_data))))
+            self.end_headers()
+            self.wfile.write(json.dumps(response_data).encode('utf-8'))
+        except:
+            pass
