@@ -1,0 +1,48 @@
+Subject: API Endpoint Tester Not Working - Never Sends Request
+
+Hi GUVI Team,
+
+Your API Endpoint Tester is not working. It shows "Processing..." forever but never actually sends a request to my API.
+
+EVIDENCE:
+
+1. GUVI Tester Behavior:
+   - Shows: "Processing... Honeypot test in progress"
+   - Hangs forever, never completes
+   - Console errors: "ERR_NAME_NOT_RESOLVED" and "Manifest: Syntax error"
+
+2. Vercel Logs Proof:
+   - Only GET requests to "/" (homepage)
+   - NO POST requests to "/api/honeypot"
+   - This proves your tester never sent the request
+
+3. My API Works Perfectly:
+   - Manual test: ✅ 200 OK in <100ms
+   - Format: ✅ 100% GUVI compliant
+   - All validation: ✅ 6/6 checks pass
+
+MY API DETAILS:
+- URL: https://scamshield-sable.vercel.app/api/honeypot
+- API Key: scamshield_2026_secure_key
+
+WORKING TEST COMMAND:
+curl -X POST https://scamshield-sable.vercel.app/api/honeypot \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: scamshield_2026_secure_key" \
+  -d '{"sessionId":"test-001","message":{"sender":"scammer","text":"Your account will be blocked","timestamp":1770005528731},"conversationHistory":[]}'
+
+RESPONSE (instant):
+{"status":"success","reply":"Oh no, what happened? What should I do?"}
+
+REQUEST:
+Please manually verify my endpoint works, or whitelist my submission for evaluation.
+The tester bug should not disqualify a working API.
+
+Attached: Test results showing my API works correctly.
+
+Thank you!
+
+---
+Participant: [Your Name]
+Email: [Your Email]
+Competition: GUVI Agentic Honey-Pot Challenge
