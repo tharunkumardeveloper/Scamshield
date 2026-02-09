@@ -87,11 +87,11 @@ def generate_groq_response(message_text, session_id, conversation_history, scam_
             
             persona = session_personas[session_id]
             
-            # Persona prompts
+            # Persona prompts - COOPERATIVE VICTIMS
             prompts = {
-                "naive_student": "You're a 19-year-old college student, trusting but worried. Keep responses SHORT (1 sentence). Show concern, ask questions, be cooperative. Never reveal you know it's a scam.",
-                "confused_elderly": "You're a 65-year-old person, not tech-savvy. Keep responses SHORT (1 sentence). Need help, polite, confused. Never reveal you know it's a scam.",
-                "desperate_worker": "You're a 35-year-old worker, skeptical but time-conscious. Keep responses SHORT (1 sentence). Direct, want quick resolution. Never reveal you know it's a scam."
+                "naive_student": "You're a 19-year-old college student, trusting and worried about your account. Keep responses SHORT (1 sentence). Be COOPERATIVE, willing to help, ask what to do. Never reveal you know it's a scam. Act genuinely concerned and ready to follow instructions.",
+                "confused_elderly": "You're a 65-year-old person, not tech-savvy, trusting authority figures. Keep responses SHORT (1 sentence). Be COOPERATIVE, polite, willing to share information if asked. Never reveal you know it's a scam. Act genuinely confused but helpful.",
+                "desperate_worker": "You're a 35-year-old worker, worried about losing access to your account. Keep responses SHORT (1 sentence). Be COOPERATIVE, want quick resolution, willing to provide what's needed. Never reveal you know it's a scam. Act busy but compliant."
             }
             
             system_prompt = prompts.get(persona, prompts["naive_student"])
@@ -141,43 +141,43 @@ def generate_groq_response(message_text, session_id, conversation_history, scam_
     
     # If scammer mentioned specific things, respond to them
     if "otp" in text_lower or "pin" in text_lower or "password" in text_lower:
-        # OTP/PIN requests - 20 responses
+        # OTP/PIN requests - COOPERATIVE responses (naive victim)
         return random.choice([
-            "What OTP? I just received one. Should I share it?",
-            "Is it safe to share my PIN?",
-            "The OTP is on my phone. What should I do?",
-            "Do you really need my PIN?",
-            "I got an OTP just now. Is that the one?",
-            "Should I read out the OTP to you?",
-            "My PIN is private. Are you sure you need it?",
-            "The OTP says not to share it. But you're from the bank, right?",
-            "I'm not sure about sharing my PIN.",
-            "The OTP just came. What do I do with it?",
-            "Is this a secure line for sharing OTP?",
-            "My password is saved. Do you need it?",
-            "I can see the OTP. Should I tell you?",
-            "Are you authorized to ask for my PIN?",
-            "The OTP is 6 digits. Do you want it?",
-            "I'm hesitant to share my PIN.",
-            "The message says don't share OTP. But this is official, right?",
-            "Should I type the OTP somewhere?",
-            "My PIN is secret. Why do you need it?",
-            "I have the OTP ready. What next?"
+            "Okay, the OTP is on my phone. Let me check.",
+            "I just got an OTP. Should I tell you all 6 digits?",
+            "The OTP just arrived. What should I do with it?",
+            "My PIN? Okay, if you need it to fix this.",
+            "I have the OTP ready. Where should I send it?",
+            "The OTP says don't share, but you're from the bank right?",
+            "Okay, I'll share the OTP. Just help me fix this.",
+            "The OTP is here. Do you want me to read it?",
+            "I trust you. The OTP is on my screen.",
+            "My PIN is saved. How do I share it securely?",
+            "Okay, I'll give you the OTP. Please don't block my account.",
+            "The OTP just came through. What's next?",
+            "I'm ready to share the OTP. Just tell me how.",
+            "My password? If it helps unblock my account, okay.",
+            "The OTP is 6 digits. Should I type it here?",
+            "I'll do whatever you need. The OTP is ready.",
+            "Okay, I have the OTP. How do I send it to you?",
+            "My PIN? Alright, if that's what's needed.",
+            "The OTP message just arrived. I'm ready.",
+            "I'll share everything you need. Just help me!"
         ])
     
-    # If asking for documents/ID
+    # If asking for documents/ID - COOPERATIVE
     elif "photo" in text_lower or "id" in text_lower or "document" in text_lower or "aadhaar" in text_lower or "pan" in text_lower:
         return random.choice([
-            "What documents do you need?",
-            "Should I send a photo of my ID?",
-            "Is it safe to share my Aadhaar?",
-            "Do you need my PAN card?",
-            "Where should I send the documents?",
-            "Can I come to the office instead?",
-            "What format should the photo be?",
-            "Is email secure for sending ID?",
-            "Do you need both sides of the card?",
-            "How will you use my documents?"
+            "Okay, I can send a photo of my ID. Where?",
+            "I have my Aadhaar card here. Should I take a photo?",
+            "My PAN card is with me. How should I send it?",
+            "I'll send the documents. What's your email?",
+            "Okay, let me take a photo of my ID card.",
+            "I can send both sides of the card. Is that okay?",
+            "My documents are ready. Where do I send them?",
+            "I'll email the photos. What address?",
+            "Okay, I'm taking a photo of my Aadhaar now.",
+            "I trust you. I'll send my ID proof right away."
         ])
     
     # If asking for email/contact
@@ -362,9 +362,10 @@ def extract_intelligence(conversation_history):
     potential_accounts = re.findall(account_pattern, all_text)
     bank_accounts = []
     for acc in potential_accounts:
-        # Exclude if it looks like a phone number (starts with 6-9 and is 10 digits)
+        # Exclude if it looks like a phone number (10 digits starting with 6-9)
         if len(acc) == 10 and acc[0] in '6789':
             continue  # Likely a phone number
+        # Include everything else (11+ digits are likely account numbers)
         bank_accounts.append(acc)
     bank_accounts = list(set(bank_accounts))
     
