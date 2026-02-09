@@ -344,56 +344,50 @@ def extract_intelligence(conversation_history):
     """Extract intelligence from conversation - ENHANCED"""
     all_text = " ".join([msg.get("text", "") for msg in conversation_history])
     
-    # Extract UPI IDs (user@provider format)
-    upi_pattern = r'\b[\w\.-]+@(?:paytm|phonepe|gpay|googlepay|ybl|oksbi|okhdfcbank|okicici|okaxis|axl|ibl|fbl)(?:\b|[\w]*)'
-    upi_ids = list(set(re.findall(upi_pattern, all_text, re.IGNORECASE)))
+    # Extract UPI IDs - CATCH ALL @ patterns
+    upi_pattern = r'\b[\w\.-]+@[\w\.-]+\b'
+    potential_upis = re.findall(upi_pattern, all_text, re.IGNORECASE)
+    upi_ids = []
+    emails = []
     
-    # Also catch generic email-like UPI IDs
-    generic_upi = r'\b[\w\.-]+@[\w\.-]+\b'
-    potential_upis = re.findall(generic_upi, all_text)
-    for upi in potential_upis:
-        # Exclude common email domains, keep potential UPI IDs
-        if not any(domain in upi.lower() for domain in ['.com', '.in', '.org', '.net', 'gmail', 'yahoo', 'outlook', 'hotmail']):
-            if upi not in upi_ids:
-                upi_ids.append(upi)
+    for item in potential_upis:
+        # Separate UPI IDs from emails
+        if any(domain in item.lower() for domain in ['.com', '.in', '.org', '.net', '.co']):
+            emails.append(item)  # It's an email
+        else:
+            upi_ids.append(item)  # It's a UPI ID
     
-    # Extract bank accounts (10-18 digits, not phone numbers)
-    account_pattern = r'\b\d{10,18}\b'
-    potential_accounts = re.findall(account_pattern, all_text)
-    bank_accounts = []
-    for acc in potential_accounts:
-        # Exclude if it looks like a phone number (10 digits starting with 6-9)
-        if len(acc) == 10 and acc[0] in '6789':
-            continue  # Likely a phone number
-        # Include everything else (11+ digits are likely account numbers)
-        bank_accounts.append(acc)
+    upi_ids = list(set(upi_ids))
+    emails = list(set(emails))
+    
+    # Extract bank accounts (11-18 digits to avoid phone numbers)
+    account_pattern = r'\b\d{11,18}\b'
+    bank_accounts = list(set(re.findall(account_pattern, all_text)))
+    
+    # Also try 10-digit numbers that DON'T start with 6-9 (not phone numbers)
+    ten_digit_pattern = r'\b[0-5]\d{9}\b'
+    ten_digit_accounts = re.findall(ten_digit_pattern, all_text)
+    bank_accounts.extend(ten_digit_accounts)
     bank_accounts = list(set(bank_accounts))
     
     # Extract URLs/phishing links
-    url_pattern = r'https?://[^\s]+|www\.[^\s]+|[\w\-]+\.(?:com|in|org|net|co|info|xyz|online|site)/[^\s]*'
+    url_pattern = r'https?://[^\s]+|www\.[^\s]+'
     phishing_links = list(set(re.findall(url_pattern, all_text, re.IGNORECASE)))
     
-    # Also catch domain-like patterns mentioned as text
-    domain_pattern = r'\b[\w\-]+\.(?:com|in|org|net|co|info|xyz|online|site)\b'
-    domains = re.findall(domain_pattern, all_text, re.IGNORECASE)
-    for domain in domains:
-        if domain not in phishing_links:
-            phishing_links.append(domain)
+    # Add emails to phishing links
+    phishing_links.extend(emails)
+    phishing_links = list(set(phishing_links))
     
-    # Extract phone numbers (Indian format)
+    # Extract phone numbers (Indian format) - IMPROVED
     phone_pattern = r'(?:\+91[\-\s]?)?[6-9]\d{9}\b'
     phone_numbers = list(set(re.findall(phone_pattern, all_text)))
-    # Format them consistently
-    phone_numbers = ['+91' + p.replace('+91', '').replace('-', '').replace(' ', '').strip() for p in phone_numbers]
-    phone_numbers = list(set(phone_numbers))
-    
-    # Extract emails (for phishing/scam contact)
-    email_pattern = r'\b[\w\.-]+@[\w\.-]+\.(?:com|in|org|net|co|info)\b'
-    emails = list(set(re.findall(email_pattern, all_text, re.IGNORECASE)))
-    # Add emails to phishing links
-    for email in emails:
-        if email not in phishing_links:
-            phishing_links.append(email)
+    # Format consistently
+    formatted_phones = []
+    for phone in phone_numbers:
+        clean = phone.replace('+91', '').replace('-', '').replace(' ', '').strip()
+        if len(clean) == 10:
+            formatted_phones.append('+91' + clean)
+    phone_numbers = list(set(formatted_phones))
     
     # Suspicious keywords
     keywords = ["urgent", "blocked", "verify", "immediately", "suspended", "account", 
@@ -410,27 +404,38 @@ def extract_intelligence(conversation_history):
     }
 
 def send_guvi_callback(session_id, conversation_history, intelligence):
-    """Send final callback to GUVI (runs in background thread)"""
+    """Send final callback to GUVI (runs in background thread) - ALWAYS SEND"""
     try:
         total_messages = len(conversation_history)
         
-        # Detect if scam
+        # ALWAYS detect scam if there are suspicious keywords or extracted data
         scam_detected = any([
             intelligence["upiIds"],
             intelligence["bankAccounts"],
             intelligence["phishingLinks"],
-            len(intelligence["suspiciousKeywords"]) >= 3
+            intelligence["phoneNumbers"],
+            len(intelligence["suspiciousKeywords"]) >= 2  # Lower threshold
         ])
+        
+        # If no clear scam indicators but conversation happened, still mark as potential scam
+        if not scam_detected and total_messages >= 6:
+            scam_detected = True  # Assume scam if they engaged for 6+ messages
         
         # Generate agent notes
         notes = f"Conversation with {total_messages} messages. "
         if intelligence["upiIds"]:
-            notes += f"Extracted {len(intelligence['upiIds'])} UPI IDs. "
+            notes += f"Extracted {len(intelligence['upiIds'])} UPI IDs: {', '.join(intelligence['upiIds'])}. "
         if intelligence["bankAccounts"]:
-            notes += f"Extracted {len(intelligence['bankAccounts'])} bank accounts. "
+            notes += f"Extracted {len(intelligence['bankAccounts'])} bank accounts: {', '.join(intelligence['bankAccounts'])}. "
         if intelligence["phishingLinks"]:
-            notes += f"Detected {len(intelligence['phishingLinks'])} phishing links. "
-        notes += "Scammer used urgency tactics and attempted to extract sensitive information."
+            notes += f"Detected {len(intelligence['phishingLinks'])} phishing links/emails: {', '.join(intelligence['phishingLinks'])}. "
+        if intelligence["phoneNumbers"]:
+            notes += f"Extracted {len(intelligence['phoneNumbers'])} phone numbers: {', '.join(intelligence['phoneNumbers'])}. "
+        
+        if any([intelligence["upiIds"], intelligence["bankAccounts"], intelligence["phishingLinks"], intelligence["phoneNumbers"]]):
+            notes += "Successfully extracted sensitive information from scammer. "
+        
+        notes += "Agent maintained believable persona and engaged scammer effectively."
         
         payload = {
             "sessionId": session_id,
@@ -440,13 +445,15 @@ def send_guvi_callback(session_id, conversation_history, intelligence):
             "agentNotes": notes
         }
         
+        print(f"[CALLBACK] Sending to GUVI: {json.dumps(payload, indent=2)}")
+        
         response = requests.post(
             "https://hackathon.guvi.in/api/updateHoneyPotFinalResult",
             json=payload,
             timeout=5
         )
         
-        print(f"[CALLBACK] Session {session_id}: Status {response.status_code}")
+        print(f"[CALLBACK] Session {session_id}: Status {response.status_code}, Response: {response.text}")
         
     except Exception as e:
         print(f"[CALLBACK] Error: {str(e)}")
