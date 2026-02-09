@@ -78,67 +78,201 @@ def get_persona_for_scam(scam_type):
 def generate_groq_response(message_text, session_id, conversation_history, scam_type):
     """Generate dynamic response using Groq AI with fast fallback"""
     
-    # ALWAYS use fallback for speed and reliability
-    # Groq can be slow/unreliable, causing timeouts
+    # Try Groq first with SHORT timeout
+    if groq_client:
+        try:
+            # Get or set persona
+            if session_id not in session_personas:
+                session_personas[session_id] = get_persona_for_scam(scam_type)
+            
+            persona = session_personas[session_id]
+            
+            # Persona prompts
+            prompts = {
+                "naive_student": "You're a 19-year-old college student, trusting but worried. Keep responses SHORT (1 sentence). Show concern, ask questions, be cooperative. Never reveal you know it's a scam.",
+                "confused_elderly": "You're a 65-year-old person, not tech-savvy. Keep responses SHORT (1 sentence). Need help, polite, confused. Never reveal you know it's a scam.",
+                "desperate_worker": "You're a 35-year-old worker, skeptical but time-conscious. Keep responses SHORT (1 sentence). Direct, want quick resolution. Never reveal you know it's a scam."
+            }
+            
+            system_prompt = prompts.get(persona, prompts["naive_student"])
+            
+            # Build context (last 2 messages only for speed)
+            context = ""
+            if conversation_history:
+                recent = conversation_history[-2:]
+                for msg in recent:
+                    sender = msg.get("sender", "unknown")
+                    text = msg.get("text", "")
+                    context += f"{sender}: {text}\n"
+            
+            context += f"scammer: {message_text}"
+            
+            # Call Groq with SHORT timeout
+            response = groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",  # Faster model
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Respond naturally in 1 short sentence:\n{context}"}
+                ],
+                temperature=0.9,  # More variety
+                max_tokens=50,
+                timeout=2  # 2 second timeout
+            )
+            
+            reply = response.choices[0].message.content.strip()
+            
+            # Ensure it's short
+            if len(reply) > 150:
+                reply = reply[:147] + "..."
+            
+            return reply
+            
+        except Exception as e:
+            print(f"[GROQ] Fallback: {str(e)}")
+            pass  # Fall through to fallback
+    
+    # Fast fallback with MORE variety
     text_lower = message_text.lower()
     
-    # Context-aware responses based on message content
-    if any(word in text_lower for word in ["account", "blocked", "suspended", "bank", "kyc", "verify"]):
+    # Bank/Account scams - 20 responses
+    if "account" in text_lower or "blocked" in text_lower or "bank" in text_lower:
         return random.choice([
             "Oh no, what happened? What should I do?",
             "Is this from my bank? How do I know?",
             "This sounds serious. Can you help me?",
-            "What do I need to do to fix this?"
+            "What do I need to do to fix this?",
+            "Why is my account blocked?",
+            "I didn't do anything wrong. What's going on?",
+            "How can I verify this is real?",
+            "What information do you need from me?",
+            "Can I call my bank to confirm?",
+            "This is scary. Please help me.",
+            "I don't want to lose my money!",
+            "What steps should I take?",
+            "Is my money safe?",
+            "How long will this take to fix?",
+            "Do I need to go to the bank?",
+            "What documents do you need?",
+            "Can you send me an official email?",
+            "I'm really worried about this.",
+            "Please tell me what to do quickly.",
+            "Will my account be okay?"
         ])
-    elif any(word in text_lower for word in ["upi", "pay", "send", "transfer", "money", "payment"]):
+    
+    # OTP/PIN requests - 20 responses
+    elif "otp" in text_lower or "pin" in text_lower or "password" in text_lower:
+        return random.choice([
+            "What OTP? I just received one. Should I share it?",
+            "Is it safe to share my PIN?",
+            "The OTP is on my phone. What should I do?",
+            "Do you really need my PIN?",
+            "I got an OTP just now. Is that the one?",
+            "Should I read out the OTP to you?",
+            "My PIN is private. Are you sure you need it?",
+            "The OTP says not to share it. But you're from the bank, right?",
+            "I'm not sure about sharing my PIN.",
+            "The OTP just came. What do I do with it?",
+            "Is this a secure line for sharing OTP?",
+            "My password is saved. Do you need it?",
+            "I can see the OTP. Should I tell you?",
+            "Are you authorized to ask for my PIN?",
+            "The OTP is 6 digits. Do you want it?",
+            "I'm hesitant to share my PIN.",
+            "The message says don't share OTP. But this is official, right?",
+            "Should I type the OTP somewhere?",
+            "My PIN is secret. Why do you need it?",
+            "I have the OTP ready. What next?"
+        ])
+    
+    # UPI/Payment - 20 responses
+    elif "upi" in text_lower or "pay" in text_lower or "money" in text_lower or "transfer" in text_lower:
         return random.choice([
             "Where should I send the money?",
             "Can I use Google Pay?",
             "What's the UPI ID?",
             "How much do I need to pay?",
-            "Okay, I want to help. What information do you need?"
+            "Is PhonePe okay?",
+            "Should I use Paytm?",
+            "What's the payment amount?",
+            "Can I pay later?",
+            "Do you accept UPI?",
+            "Should I transfer now?",
+            "What's your UPI address?",
+            "Is there a payment link?",
+            "How do I make the payment?",
+            "Can I pay in installments?",
+            "What's the account number?",
+            "Should I scan a QR code?",
+            "Is this payment refundable?",
+            "Do I get a receipt?",
+            "What happens after I pay?",
+            "Can I pay through my bank app?"
         ])
-    elif any(word in text_lower for word in ["lottery", "won", "prize", "claim", "congratulations"]):
+    
+    # Lottery/Prize - 15 responses
+    elif "lottery" in text_lower or "won" in text_lower or "prize" in text_lower:
         return random.choice([
             "Really? How do I claim it?",
             "This sounds amazing! What should I do?",
-            "Can you tell me more details?",
-            "What information do you need from me?"
+            "I won? How is that possible?",
+            "What information do you need from me?",
+            "How much did I win?",
+            "Is this for real?",
+            "What's the next step?",
+            "Do I need to pay anything?",
+            "When will I get the prize?",
+            "How did you get my number?",
+            "This is so exciting!",
+            "What do I need to do to claim?",
+            "Are there any conditions?",
+            "Can you prove this is legitimate?",
+            "I can't believe I won!"
         ])
-    elif any(word in text_lower for word in ["police", "arrest", "cyber", "crime", "legal"]):
+    
+    # Police/Arrest - 15 responses
+    elif "police" in text_lower or "arrest" in text_lower or "cyber" in text_lower:
         return random.choice([
             "What? Why? I didn't do anything!",
             "This is scary. What should I do?",
             "Please help me, I don't want any problem.",
-            "How do I fix this?"
-        ])
-    elif any(word in text_lower for word in ["job", "work", "earn", "income"]):
-        return random.choice([
-            "I'm interested. Tell me more.",
-            "What do I need to do?",
-            "Is this legitimate?",
-            "How much can I earn?"
-        ])
-    elif any(word in text_lower for word in ["click", "link", "website", "http"]):
-        return random.choice([
-            "Should I click on it?",
-            "Is this safe?",
-            "I'm going to the website",
-            "What will happen if I click?"
-        ])
-    else:
-        # Generic responses
-        return random.choice([
-            "I don't understand. Can you explain?",
-            "What does this mean? I'm not sure what to do.",
-            "Can you tell me more details?",
-            "Okay, I want to help. What information do you need?",
-            "I'm worried. Please tell me what to do."
+            "How do I fix this?",
+            "I'm innocent! What's happening?",
+            "Can I speak to a lawyer?",
+            "What are the charges?",
+            "This must be a mistake!",
+            "I haven't done anything illegal.",
+            "How can I prove my innocence?",
+            "What evidence do you have?",
+            "Can I come to the station?",
+            "This is terrifying. Please help.",
+            "I don't understand what I did wrong.",
+            "Can my family help me?"
         ])
     
-    # OLD GROQ CODE REMOVED FOR SPEED
-    # Groq API calls can timeout and cause INVALID_REQUEST_BODY errors
-    # Using fast, reliable, context-aware responses instead
+    # Generic - 20 responses
+    else:
+        return random.choice([
+            "I don't understand. Can you explain?",
+            "What does this mean?",
+            "Can you tell me more details?",
+            "I'm not sure what to do.",
+            "Please explain this to me.",
+            "I'm confused. Help me understand.",
+            "What should I do next?",
+            "Is this important?",
+            "Should I be worried?",
+            "Can you clarify?",
+            "I need more information.",
+            "What are you asking me to do?",
+            "I'm not following. Can you repeat?",
+            "This is confusing.",
+            "Can you explain it simply?",
+            "What happens if I don't do this?",
+            "Is this urgent?",
+            "I'm trying to understand.",
+            "Can you help me?",
+            "What's the situation?"
+        ])
 
 def extract_intelligence(conversation_history):
     """Extract intelligence from conversation"""
@@ -256,7 +390,7 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(response).encode())
     
     def do_POST(self):
-        """Handle POST requests - ULTRA FAST"""
+        """Handle POST requests - FAST with AI"""
         response_data = {"status": "success", "reply": "I don't understand. Can you explain?"}
         
         try:
@@ -267,32 +401,25 @@ class handler(BaseHTTPRequestHandler):
                 post_data = self.rfile.read(content_length)
                 request_data = json.loads(post_data.decode('utf-8'))
                 
-                # Extract message FAST
+                # Extract data
                 message_text = "Hello"
                 message_data = request_data.get("message", {})
                 if isinstance(message_data, dict):
                     message_text = message_data.get("text", "Hello")
                 
-                # Generate reply FAST
-                text_lower = message_text.lower()
+                session_id = request_data.get("sessionId", "unknown")
+                conversation_history = request_data.get("conversationHistory", [])
                 
-                if "account" in text_lower or "blocked" in text_lower or "bank" in text_lower:
-                    reply = "Oh no, what happened? What should I do?"
-                elif "upi" in text_lower or "pay" in text_lower or "money" in text_lower:
-                    reply = "Where should I send the money?"
-                elif "lottery" in text_lower or "won" in text_lower or "prize" in text_lower:
-                    reply = "Really? How do I claim it?"
-                elif "police" in text_lower or "arrest" in text_lower:
-                    reply = "What? Why? I didn't do anything!"
-                else:
-                    reply = random.choice(SIMPLE_RESPONSES)
+                # Detect scam type
+                scam_type = detect_scam_type(message_text)
+                
+                # Generate AI response (with fallback)
+                reply = generate_groq_response(message_text, session_id, conversation_history, scam_type)
                 
                 response_data = {"status": "success", "reply": reply}
                 
                 # Background processing (non-blocking)
                 try:
-                    session_id = request_data.get("sessionId", "unknown")
-                    conversation_history = request_data.get("conversationHistory", [])
                     updated_history = conversation_history + [
                         message_data,
                         {"sender": "user", "text": reply, "timestamp": 0}
