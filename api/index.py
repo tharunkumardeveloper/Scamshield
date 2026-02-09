@@ -131,36 +131,17 @@ def generate_groq_response(message_text, session_id, conversation_history, scam_
             print(f"[GROQ] Fallback: {str(e)}")
             pass  # Fall through to fallback
     
-    # Fast fallback with MORE variety
+    # Fast fallback with MORE variety and CONTEXT AWARENESS
     text_lower = message_text.lower()
     
-    # Bank/Account scams - 20 responses
-    if "account" in text_lower or "blocked" in text_lower or "bank" in text_lower:
-        return random.choice([
-            "Oh no, what happened? What should I do?",
-            "Is this from my bank? How do I know?",
-            "This sounds serious. Can you help me?",
-            "What do I need to do to fix this?",
-            "Why is my account blocked?",
-            "I didn't do anything wrong. What's going on?",
-            "How can I verify this is real?",
-            "What information do you need from me?",
-            "Can I call my bank to confirm?",
-            "This is scary. Please help me.",
-            "I don't want to lose my money!",
-            "What steps should I take?",
-            "Is my money safe?",
-            "How long will this take to fix?",
-            "Do I need to go to the bank?",
-            "What documents do you need?",
-            "Can you send me an official email?",
-            "I'm really worried about this.",
-            "Please tell me what to do quickly.",
-            "Will my account be okay?"
-        ])
+    # Check conversation history for context
+    history_text = ""
+    if conversation_history:
+        history_text = " ".join([msg.get("text", "") for msg in conversation_history[-3:]]).lower()
     
-    # OTP/PIN requests - 20 responses
-    elif "otp" in text_lower or "pin" in text_lower or "password" in text_lower:
+    # If scammer mentioned specific things, respond to them
+    if "otp" in text_lower or "pin" in text_lower or "password" in text_lower:
+        # OTP/PIN requests - 20 responses
         return random.choice([
             "What OTP? I just received one. Should I share it?",
             "Is it safe to share my PIN?",
@@ -184,32 +165,107 @@ def generate_groq_response(message_text, session_id, conversation_history, scam_
             "I have the OTP ready. What next?"
         ])
     
-    # UPI/Payment - 20 responses
-    elif "upi" in text_lower or "pay" in text_lower or "money" in text_lower or "transfer" in text_lower:
+    # If asking for documents/ID
+    elif "photo" in text_lower or "id" in text_lower or "document" in text_lower or "aadhaar" in text_lower or "pan" in text_lower:
         return random.choice([
-            "Where should I send the money?",
-            "Can I use Google Pay?",
-            "What's the UPI ID?",
-            "How much do I need to pay?",
-            "Is PhonePe okay?",
-            "Should I use Paytm?",
-            "What's the payment amount?",
-            "Can I pay later?",
-            "Do you accept UPI?",
-            "Should I transfer now?",
-            "What's your UPI address?",
-            "Is there a payment link?",
-            "How do I make the payment?",
-            "Can I pay in installments?",
-            "What's the account number?",
-            "Should I scan a QR code?",
-            "Is this payment refundable?",
-            "Do I get a receipt?",
-            "What happens after I pay?",
-            "Can I pay through my bank app?"
+            "What documents do you need?",
+            "Should I send a photo of my ID?",
+            "Is it safe to share my Aadhaar?",
+            "Do you need my PAN card?",
+            "Where should I send the documents?",
+            "Can I come to the office instead?",
+            "What format should the photo be?",
+            "Is email secure for sending ID?",
+            "Do you need both sides of the card?",
+            "How will you use my documents?"
         ])
     
-    # Lottery/Prize - 15 responses
+    # If asking for email/contact
+    elif "email" in text_lower or "send" in text_lower or "contact" in text_lower:
+        return random.choice([
+            "What's your email address?",
+            "Where should I send it?",
+            "Is this email official?",
+            "Can I call instead?",
+            "What's the official contact?",
+            "Should I reply to this email?",
+            "Is there a customer service number?",
+            "How do I know this is legitimate?",
+            "Can you verify your identity first?",
+            "What's your official website?"
+        ])
+    
+    # Bank/Account scams - context aware
+    elif "account" in text_lower or "blocked" in text_lower or "bank" in text_lower:
+        # If they already mentioned account number in history
+        if any(word in history_text for word in ["account number", "16-digit", "digits"]):
+            return random.choice([
+                "I already told you my account details. What else?",
+                "You have my account number. What's next?",
+                "Is there anything else you need?",
+                "What should I do after this?",
+                "How long will this take?"
+            ])
+        else:
+            return random.choice([
+                "Oh no, what happened? What should I do?",
+                "Is this from my bank? How do I know?",
+                "This sounds serious. Can you help me?",
+                "What do I need to do to fix this?",
+                "Why is my account blocked?",
+                "I didn't do anything wrong. What's going on?",
+                "How can I verify this is real?",
+                "What information do you need from me?",
+                "Can I call my bank to confirm?",
+                "This is scary. Please help me.",
+                "I don't want to lose my money!",
+                "What steps should I take?",
+                "Is my money safe?",
+                "How long will this take to fix?",
+                "Do I need to go to the bank?",
+                "What documents do you need?",
+                "Can you send me an official email?",
+                "I'm really worried about this.",
+                "Please tell me what to do quickly.",
+                "Will my account be okay?"
+            ])
+    
+    # UPI/Payment - context aware
+    elif "upi" in text_lower or "pay" in text_lower or "money" in text_lower or "transfer" in text_lower:
+        # If they already mentioned UPI in history
+        if "upi" in history_text or "@" in history_text:
+            return random.choice([
+                "I'll send it to that UPI ID now.",
+                "Should I transfer the full amount?",
+                "Let me open my payment app.",
+                "Is that the correct UPI address?",
+                "How much exactly?"
+            ])
+        else:
+            return random.choice([
+                "Where should I send the money?",
+                "Can I use Google Pay?",
+                "What's the UPI ID?",
+                "How much do I need to pay?",
+                "Is PhonePe okay?",
+                "Should I use Paytm?",
+                "What's the payment amount?",
+                "Can I pay later?",
+                "Do you accept UPI?",
+                "Should I transfer now?",
+                "What's your UPI address?",
+                "Is there a payment link?",
+                "How do I make the payment?",
+                "Can I pay in installments?",
+                "What's the account number?",
+                "Should I scan a QR code?",
+                "Is this payment refundable?",
+                "Do I get a receipt?",
+                "What happens after I pay?",
+                "Can I pay through my bank app?"
+            ])
+    
+    # Lottery/Prize
     elif "lottery" in text_lower or "won" in text_lower or "prize" in text_lower:
         return random.choice([
             "Really? How do I claim it?",
@@ -229,7 +285,7 @@ def generate_groq_response(message_text, session_id, conversation_history, scam_
             "I can't believe I won!"
         ])
     
-    # Police/Arrest - 15 responses
+    # Police/Arrest
     elif "police" in text_lower or "arrest" in text_lower or "cyber" in text_lower:
         return random.choice([
             "What? Why? I didn't do anything!",
@@ -249,55 +305,100 @@ def generate_groq_response(message_text, session_id, conversation_history, scam_
             "Can my family help me?"
         ])
     
-    # Generic - 20 responses
+    # Generic - context aware
     else:
-        return random.choice([
-            "I don't understand. Can you explain?",
-            "What does this mean?",
-            "Can you tell me more details?",
-            "I'm not sure what to do.",
-            "Please explain this to me.",
-            "I'm confused. Help me understand.",
-            "What should I do next?",
-            "Is this important?",
-            "Should I be worried?",
-            "Can you clarify?",
-            "I need more information.",
-            "What are you asking me to do?",
-            "I'm not following. Can you repeat?",
-            "This is confusing.",
-            "Can you explain it simply?",
-            "What happens if I don't do this?",
-            "Is this urgent?",
-            "I'm trying to understand.",
-            "Can you help me?",
-            "What's the situation?"
-        ])
+        # If conversation is ongoing, show progression
+        if len(conversation_history) > 4:
+            return random.choice([
+                "Okay, I understand. What's next?",
+                "I'm following your instructions. Continue.",
+                "Yes, I'm ready. What else?",
+                "I'm doing what you said. What now?",
+                "Alright, what's the next step?"
+            ])
+        else:
+            return random.choice([
+                "I don't understand. Can you explain?",
+                "What does this mean?",
+                "Can you tell me more details?",
+                "I'm not sure what to do.",
+                "Please explain this to me.",
+                "I'm confused. Help me understand.",
+                "What should I do next?",
+                "Is this important?",
+                "Should I be worried?",
+                "Can you clarify?",
+                "I need more information.",
+                "What are you asking me to do?",
+                "I'm not following. Can you repeat?",
+                "This is confusing.",
+                "Can you explain it simply?",
+                "What happens if I don't do this?",
+                "Is this urgent?",
+                "I'm trying to understand.",
+                "Can you help me?",
+                "What's the situation?"
+            ])
 
 def extract_intelligence(conversation_history):
-    """Extract intelligence from conversation"""
+    """Extract intelligence from conversation - ENHANCED"""
     all_text = " ".join([msg.get("text", "") for msg in conversation_history])
     
-    # Extract UPI IDs
-    upi_pattern = r'\b[\w\.-]+@[\w\.-]+\b'
-    upi_ids = list(set(re.findall(upi_pattern, all_text)))
+    # Extract UPI IDs (user@provider format)
+    upi_pattern = r'\b[\w\.-]+@(?:paytm|phonepe|gpay|googlepay|ybl|oksbi|okhdfcbank|okicici|okaxis|axl|ibl|fbl)(?:\b|[\w]*)'
+    upi_ids = list(set(re.findall(upi_pattern, all_text, re.IGNORECASE)))
     
-    # Extract bank accounts (10-18 digits)
+    # Also catch generic email-like UPI IDs
+    generic_upi = r'\b[\w\.-]+@[\w\.-]+\b'
+    potential_upis = re.findall(generic_upi, all_text)
+    for upi in potential_upis:
+        # Exclude common email domains, keep potential UPI IDs
+        if not any(domain in upi.lower() for domain in ['.com', '.in', '.org', '.net', 'gmail', 'yahoo', 'outlook', 'hotmail']):
+            if upi not in upi_ids:
+                upi_ids.append(upi)
+    
+    # Extract bank accounts (10-18 digits, not phone numbers)
     account_pattern = r'\b\d{10,18}\b'
-    bank_accounts = list(set(re.findall(account_pattern, all_text)))
+    potential_accounts = re.findall(account_pattern, all_text)
+    bank_accounts = []
+    for acc in potential_accounts:
+        # Exclude if it looks like a phone number (starts with 6-9 and is 10 digits)
+        if len(acc) == 10 and acc[0] in '6789':
+            continue  # Likely a phone number
+        bank_accounts.append(acc)
+    bank_accounts = list(set(bank_accounts))
     
-    # Extract URLs
-    url_pattern = r'https?://[^\s]+'
-    phishing_links = list(set(re.findall(url_pattern, all_text)))
+    # Extract URLs/phishing links
+    url_pattern = r'https?://[^\s]+|www\.[^\s]+|[\w\-]+\.(?:com|in|org|net|co|info|xyz|online|site)/[^\s]*'
+    phishing_links = list(set(re.findall(url_pattern, all_text, re.IGNORECASE)))
     
-    # Extract phone numbers
-    phone_pattern = r'\+?91[-\s]?\d{10}|\b\d{10}\b'
+    # Also catch domain-like patterns mentioned as text
+    domain_pattern = r'\b[\w\-]+\.(?:com|in|org|net|co|info|xyz|online|site)\b'
+    domains = re.findall(domain_pattern, all_text, re.IGNORECASE)
+    for domain in domains:
+        if domain not in phishing_links:
+            phishing_links.append(domain)
+    
+    # Extract phone numbers (Indian format)
+    phone_pattern = r'(?:\+91[\-\s]?)?[6-9]\d{9}\b'
     phone_numbers = list(set(re.findall(phone_pattern, all_text)))
+    # Format them consistently
+    phone_numbers = ['+91' + p.replace('+91', '').replace('-', '').replace(' ', '').strip() for p in phone_numbers]
+    phone_numbers = list(set(phone_numbers))
+    
+    # Extract emails (for phishing/scam contact)
+    email_pattern = r'\b[\w\.-]+@[\w\.-]+\.(?:com|in|org|net|co|info)\b'
+    emails = list(set(re.findall(email_pattern, all_text, re.IGNORECASE)))
+    # Add emails to phishing links
+    for email in emails:
+        if email not in phishing_links:
+            phishing_links.append(email)
     
     # Suspicious keywords
     keywords = ["urgent", "blocked", "verify", "immediately", "suspended", "account", 
-                "bank", "upi", "pay", "transfer", "click", "link"]
-    suspicious_keywords = [kw for kw in keywords if kw in all_text.lower()]
+                "bank", "upi", "pay", "transfer", "click", "link", "otp", "pin", 
+                "password", "secure", "fraud", "compromised"]
+    suspicious_keywords = list(set([kw for kw in keywords if kw in all_text.lower()]))
     
     return {
         "bankAccounts": bank_accounts,
