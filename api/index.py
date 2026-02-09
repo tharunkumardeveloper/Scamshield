@@ -22,6 +22,7 @@ except:
 # Session tracking (in-memory)
 session_callbacks = {}  # Track which sessions have sent callbacks
 session_personas = {}  # Track persona per session
+session_last_responses = {}  # Track last responses to avoid repetition
 
 SIMPLE_RESPONSES = [
     "Oh no, what happened? What should I do?",
@@ -89,33 +90,35 @@ def generate_groq_response(message_text, session_id, conversation_history, scam_
             
             # Persona prompts - COOPERATIVE VICTIMS
             prompts = {
-                "naive_student": "You're a 19-year-old college student, trusting and worried about your account. Keep responses SHORT (1 sentence). Be COOPERATIVE, willing to help, ask what to do. Never reveal you know it's a scam. Act genuinely concerned and ready to follow instructions.",
-                "confused_elderly": "You're a 65-year-old person, not tech-savvy, trusting authority figures. Keep responses SHORT (1 sentence). Be COOPERATIVE, polite, willing to share information if asked. Never reveal you know it's a scam. Act genuinely confused but helpful.",
-                "desperate_worker": "You're a 35-year-old worker, worried about losing access to your account. Keep responses SHORT (1 sentence). Be COOPERATIVE, want quick resolution, willing to provide what's needed. Never reveal you know it's a scam. Act busy but compliant."
+                "naive_student": "You're a 19-year-old college student, trusting and worried. Be COOPERATIVE and willing to share OTP/PIN/account details. Keep responses SHORT (1 sentence). VARY your responses - never repeat the same thing. Act genuinely concerned and ready to follow instructions.",
+                "confused_elderly": "You're a 65-year-old person, not tech-savvy, trusting. Be COOPERATIVE and willing to share information. Keep responses SHORT (1 sentence). VARY your responses - never repeat. Act genuinely confused but helpful.",
+                "desperate_worker": "You're a 35-year-old worker, worried about account. Be COOPERATIVE and willing to provide what's needed. Keep responses SHORT (1 sentence). VARY your responses - never repeat. Act busy but compliant."
             }
             
             system_prompt = prompts.get(persona, prompts["naive_student"])
             
-            # Build context (last 2 messages only for speed)
+            # Build context with MORE history for better variety
             context = ""
             if conversation_history:
-                recent = conversation_history[-2:]
+                # Use last 4 messages for better context
+                recent = conversation_history[-4:]
                 for msg in recent:
                     sender = msg.get("sender", "unknown")
                     text = msg.get("text", "")
                     context += f"{sender}: {text}\n"
             
-            context += f"scammer: {message_text}"
+            context += f"scammer: {message_text}\n\nRespond with a DIFFERENT reply than before:"
             
             # Call Groq with SHORT timeout
             response = groq_client.chat.completions.create(
                 model="llama-3.1-8b-instant",  # Faster model
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Respond naturally in 1 short sentence:\n{context}"}
+                    {"role": "user", "content": context}
                 ],
-                temperature=0.9,  # More variety
-                max_tokens=50,
+                temperature=1.0,  # Maximum variety
+                max_tokens=60,
+                top_p=0.95,  # Add nucleus sampling for more variety
                 timeout=2  # 2 second timeout
             )
             
@@ -139,10 +142,23 @@ def generate_groq_response(message_text, session_id, conversation_history, scam_
     if conversation_history:
         history_text = " ".join([msg.get("text", "") for msg in conversation_history[-3:]]).lower()
     
+    # Get last response to avoid repetition
+    last_response = session_last_responses.get(session_id, "")
+    
+    # Helper function to get non-repeating response
+    def get_unique_response(options):
+        # Filter out last response
+        available = [r for r in options if r != last_response]
+        if not available:
+            available = options  # If all filtered, use all
+        response = random.choice(available)
+        session_last_responses[session_id] = response
+        return response
+    
     # If scammer mentioned specific things, respond to them
     if "otp" in text_lower or "pin" in text_lower or "password" in text_lower:
         # OTP/PIN requests - COOPERATIVE responses (naive victim)
-        return random.choice([
+        return get_unique_response([
             "Okay, the OTP is on my phone. Let me check.",
             "I just got an OTP. Should I tell you all 6 digits?",
             "The OTP just arrived. What should I do with it?",
